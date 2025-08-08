@@ -92,11 +92,13 @@ class Events(Base):
     start_time = Column(DateTime, nullable=True)
     end_time = Column(DateTime, nullable=True)
     event_location = Column(String, nullable=False)
+    event_type = Column(Enum("academia", "sports", "cultural", "official", name="event_types"), nullable=False)
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
     allowed_parking_lots = Column(JSON, nullable=True) # Assuming this is a list of allowed lot names
 
     reservations = relationship("Reservation", back_populates="event")
+    
 
 
 class Report(Base):

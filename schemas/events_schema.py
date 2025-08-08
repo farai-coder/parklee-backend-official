@@ -14,6 +14,7 @@ class EventCreate(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     allowed_parking_lots: Optional[List[str]] = []
+    event_type: str  # Assuming this is a string representing the type of event
    
 class EventRead(EventCreate):
     id: UUID

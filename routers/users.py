@@ -12,8 +12,6 @@ from uuid import UUID
 from typing import List, Optional
 import os
 from dotenv import load_dotenv
-import boto3
-from botocore.exceptions import NoCredentialsError
 from database import get_db
 from schemas.userSchema import UserIdResponse
 

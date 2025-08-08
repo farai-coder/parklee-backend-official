@@ -1,5 +1,5 @@
-from django.db import router
-from fastapi import APIRouter, Depends, HTTPException, status
+
+from fastapi import APIRouter, Depends, HTTPException, status, APIRouter
 from sqlalchemy.orm import Session
 from database import SessionLocal
 from models import ParkingSession, User, Reservation, ParkingSpot, ParkingZone, Report # Import Report
@@ -8,7 +8,10 @@ from schemas.reportSchema import ReportCreate # Assuming you have a ReportCreate
 from uuid import UUID
 import datetime
 from crud import get_available_spots # Assuming crud.py has this or similar logic
-from database import get_db  # Assuming you have a get_db function to provide DB session        
+from database import get_db  # Assuming you have a get_db function to provide DB session 
+
+  
+router = APIRouter(prefix="/sessions", tags=["sessions"])    
 
 def check_user_and_zone_rules(license_plate: str, spot_id: UUID, db: Session):
     user = db.query(User).filter(User.license_plate == license_plate).first()
