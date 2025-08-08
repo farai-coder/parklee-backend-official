@@ -421,7 +421,6 @@ def get_events_with_details(db: Session = Depends(get_db)):
         })
     return detailed_events
 
-
 @router.get("/occupied_spots_count", response_model=int)
 def get_occupied_spots_count(db: Session = Depends(get_db)):
     """
@@ -434,3 +433,129 @@ def get_occupied_spots_count(db: Session = Depends(get_db)):
         .count()
     )
     return count
+
+
+@router.get("/api/events")
+def get_events(db: Session = Depends(get_db)):
+    """
+    Retrieves all events from the database.
+    """
+    events = db.query(Events).all()
+    return events
+
+@router.get("/api/analytics/events/distribution_by_type", response_model=Dict[str, int])
+def get_event_distribution(db: Session = Depends(get_db)):
+    """
+    Counts the number of events for each event type, returning 0 for types with no events.
+    """
+    # A list of all possible event types
+    all_event_types = ["academic", "sports", "cultural", "official"]
+
+    # Initialize a dictionary with a count of 0 for each type
+    result = {event_type: 0 for event_type in all_event_types}
+
+    # Query the database to get the actual counts
+    distribution = db.query(
+        Events.event_type,
+        func.count(Events.id)
+    ).group_by(Events.event_type).all()
+
+    # Update the result dictionary with the counts from the database
+    for event_type, count in distribution:
+        result[event_type] = count
+
+    return result
+
+@router.get("/api/analytics/events/trend_by_month")
+def get_monthly_event_trend(db: Session = Depends(get_db)):
+    """
+    Counts events per month for each type over the last 6 months.
+    """
+    today = datetime.now()
+    start_date = today - timedelta(days=180)
+    
+    events_in_range = db.query(Events).filter(Events.start_time >= start_date).all()
+    
+    monthly_data = {}
+    for i in range(6):
+        month_date = today - timedelta(days=(5-i)*30) # Approx. month calculation
+        month_label = month_date.strftime("%b")
+        monthly_data[month_label] = {
+            "academic": 0, "sports": 0, "cultural": 0, "official": 0
+        }
+
+    for event in events_in_range:
+        month_label = event.start_time.strftime("%b")
+        if month_label in monthly_data and event.event_type in monthly_data[month_label]:
+            monthly_data[month_label][event.event_type] += 1
+            
+    # Format for the frontend line chart
+    academic_data = [monthly_data[month]["academic"] for month in monthly_data]
+    sports_data = [monthly_data[month]["sports"] for month in monthly_data]
+    cultural_data = [monthly_data[month]["cultural"] for month in monthly_data]
+    official_data = [monthly_data[month]["official"] for month in monthly_data]
+
+    return {
+        "months": list(monthly_data.keys()),
+        "academic": academic_data,
+        "sports": sports_data,
+        "cultural": cultural_data,
+        "official": official_data,
+    }
+
+@router.get("/api/analytics/events/parking_demand")
+def get_parking_demand(db: Session = Depends(get_db)):
+    """
+    Calculates average and max reservations per event type.
+    """
+    # Query to get the total reservations for each event
+    total_reservations_per_event = db.query(
+        Events.id,
+        Events.event_type,
+        func.count(Reservation.id).label('reservation_count')
+    ).outerjoin(Reservation, Events.id == Reservation.event_id).group_by(
+        Events.id, Events.event_type
+    ).all()
+
+    # Process the results to group by event type
+    reservations_by_type = {
+        'academic': [],
+        'sports': [],
+        'cultural': [],
+        'official': []
+    }
+    for event_id, event_type, count in total_reservations_per_event:
+        if event_type in reservations_by_type:
+            reservations_by_type[event_type].append(count)
+
+    # Calculate average and max for each event type
+    avg_result = {}
+    max_result = {}
+    for event_type, counts in reservations_by_type.items():
+        if counts:
+            avg_result[event_type] = round(sum(counts) / len(counts), 2)
+            max_result[event_type] = max(counts)
+        else:
+            avg_result[event_type] = 0.0
+            max_result[event_type] = 0
+
+    event_types = ['academic', 'sports', 'cultural', 'official']
+    
+    # Map results to the required frontend format
+    formatted_avg = [avg_result.get(type, 0.0) for type in event_types]
+    formatted_max = [max_result.get(type, 0) for type in event_types]
+
+    return {
+        "event_types": event_types,
+        "average_reservations": formatted_avg,
+        "max_reservations": formatted_max,
+    }
+    
+@router.get("/api/analytics/events/count")
+def get_event_count(db: Session = Depends(get_db)):
+    """
+    Returns the total number of events in the database.
+    """
+    count = db.query(func.count(Events.id)).scalar()
+    
+    return {"total_events": count}
