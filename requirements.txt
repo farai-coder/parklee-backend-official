@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+SQLAlchemy
+alembic
+psycopg2-binary      # or your DB driver
+python-multipart     # for file uploads
+pydantic
