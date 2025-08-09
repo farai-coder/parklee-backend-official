@@ -172,3 +172,18 @@ def get_available_spots(db: Session = Depends(get_db)):
           .all()
     )
     return available_spots
+
+@router.get("/all-spots", response_model=list[ParkingSpotRead])
+def get_all_spots_with_detail(db: Session = Depends(get_db)):
+    """
+    Retrieves all parking spots regardless of their current status.
+
+    This endpoint returns a comprehensive list of all parking spots, including
+    those that are currently occupied, reserved, or under maintenance.
+    The list includes full details for each spot.
+
+    Returns:
+        A list of ParkingSpotRead objects, representing all spots in the database.
+    """
+    all_spots = db.query(ParkingSpot).all()
+    return all_spots

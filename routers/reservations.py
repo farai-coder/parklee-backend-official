@@ -11,6 +11,7 @@ from database import get_db  # Assuming you have a get_db function to provide DB
 from datetime import datetime, timedelta, timezone # Import timezone
 
 router = APIRouter(prefix="/reservations", tags=["reservations"])
+
 @router.post("/reserve-spot", response_model=ReservationRead, status_code=status.HTTP_201_CREATED)
 def create_reservation(res: ReservationCreate, db: Session = Depends(get_db)):
 
@@ -35,59 +36,55 @@ def create_reservation(res: ReservationCreate, db: Session = Depends(get_db)):
     if not user or not spot:
         raise HTTPException(status_code=404, detail="User or Spot not found")
 
-    # Get the parking zone for the spot
     parking_zone = db.query(ParkingZone).filter(ParkingZone.id == spot.parking_zone_id).first()
     if not parking_zone:
         raise HTTPException(status_code=404, detail="Parking zone for spot not found")
 
-    # Role-based parking zone restriction
     if user.role in ["staff", "student", "visitor"] and parking_zone.zone_type != user.role:
-        # Allow 'general' zones for everyone
         if parking_zone.zone_type != "general":
-            raise HTTPException(status_code=403, detail=f"User with role '{user.role}' is not allowed to park in '{parking_zone.zone_type}' zones.")
+            raise HTTPException(
+                status_code=403,
+                detail=f"User with role '{user.role}' is not allowed to park in '{parking_zone.zone_type}' zones."
+            )
 
-    now = pytz.utc.localize(datetime.utcnow())
+    now = datetime.now(timezone.utc)
+    print(f"Current UTC now: {now}")
 
-    # Event-specific checks if an event is linked
     if event and event.start_time:
-        # Localize event.start_time if naive
         if event.start_time.tzinfo is None:
             event_start_time_aware = pytz.utc.localize(event.start_time)
         else:
             event_start_time_aware = event.start_time.astimezone(pytz.utc)
+        print(f"Event start time (UTC): {event_start_time_aware}")
 
-        # Localize reservation start time if naive
         if res.start_time.tzinfo is None:
             res_start_time_aware = pytz.utc.localize(res.start_time)
         else:
             res_start_time_aware = res.start_time.astimezone(pytz.utc)
+        print(f"Requested reservation start time (UTC): {res_start_time_aware}")
+        print(f"Requested reservation end time (UTC): {res.end_time}")
 
-        # Check if the spot's lot is allowed for this event
         if event.allowed_parking_lots and spot.lot_name not in event.allowed_parking_lots:
             raise HTTPException(status_code=403, detail="This parking lot is not available for the selected event")
 
-        # Reservation window for events (e.g., within 30 minutes before event start)
-        if now < event_start_time_aware - timedelta(minutes=30) or res_start_time_aware > event_start_time_aware:
-            raise HTTPException(status_code=400, detail="Reservation for an event can only be made within 30 minutes before the event starts.")
-    else:
-        # General reservation time validation (e.g., not too far in the future, not in the past)
+        # *** REMOVED 30-minute window restriction HERE ***
 
-        # Localize reservation start time if naive
+    else:
         if res.start_time.tzinfo is None:
             res_start_time_aware = pytz.utc.localize(res.start_time)
         else:
             res_start_time_aware = res.start_time.astimezone(pytz.utc)
+        print(f"General reservation start time (UTC): {res_start_time_aware}")
+        print(f"General reservation end time (UTC): {res.end_time}")
 
         if res_start_time_aware < now:
             raise HTTPException(status_code=400, detail="Reservation start time cannot be in the past.")
         if res.end_time <= res.start_time:
             raise HTTPException(status_code=400, detail="Reservation end time must be after start time.")
 
-    # Enforce VIP-only spot logic (Only VIP role can reserve VIP spots)
     if spot.is_vip and user.role != "vip":
         raise HTTPException(status_code=403, detail="Not authorized for VIP spot")
 
-    # Check for reservation time overlap
     overlap = (
         db.query(Reservation)
         .filter(Reservation.spot_id == res.spot_id)
@@ -99,7 +96,6 @@ def create_reservation(res: ReservationCreate, db: Session = Depends(get_db)):
     if overlap:
         raise HTTPException(status_code=400, detail="Spot already reserved in that period")
 
-    # Check if spot is currently occupied by an active session
     current_session = db.query(ParkingSession).filter(
         ParkingSession.spot_id == res.spot_id,
         ParkingSession.check_out_time.is_(None)
@@ -107,19 +103,20 @@ def create_reservation(res: ReservationCreate, db: Session = Depends(get_db)):
     if current_session:
         raise HTTPException(status_code=400, detail="Spot is currently occupied by an active parking session.")
 
-    # Create the reservation
     obj = Reservation(**res.model_dump(), status="pending")
     db.add(obj)
     db.commit()
     db.refresh(obj)
 
-    # Update spot status if reserved
     spot.status = "occupied"
     db.add(spot)
     db.commit()
     db.refresh(spot)
 
+    print("---- End of time printout ----")
+
     return obj
+
 
 @router.post("/cancel", status_code=status.HTTP_200_OK)
 def cancel_reservation(cancel_data: ReservationCancel, db: Session = Depends(get_db)):

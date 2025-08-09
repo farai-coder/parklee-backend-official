@@ -61,3 +61,31 @@ def get_all_users(db: Session = Depends(get_db)):
     """
     users = db.query(User).all()
     return users
+
+# Helper function to get users by role
+def get_users_by_role(role: str, db: Session):
+    return db.query(User).filter(User.role == role).all()
+
+@user_router.get("/admins", response_model=List[UserResponse])
+def get_all_admins(db: Session = Depends(get_db)):
+    """Get all admin users"""
+    admins = get_users_by_role("admin", db)
+    return admins
+
+@user_router.get("/staff", response_model=List[UserResponse])
+def get_all_staff(db: Session = Depends(get_db)):
+    """Get all staff users"""
+    staff = get_users_by_role("staff", db)
+    return staff
+
+@user_router.get("/visitors", response_model=List[UserResponse])
+def get_all_visitors(db: Session = Depends(get_db)):
+    """Get all visitor users"""
+    visitors = get_users_by_role("visitor", db)
+    return visitors
+
+@user_router.get("/students", response_model=List[UserResponse])
+def get_all_students(db: Session = Depends(get_db)):
+    """Get all student users"""
+    students = get_users_by_role("student", db)
+    return students
