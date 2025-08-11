@@ -21,3 +21,17 @@ class ReservationRead(ReservationCreate):
 class ReservationCancel(BaseModel): # New schema for cancellation
     reservation_id: UUID
     user_id: UUID # To verify ownership or admin privilege
+
+# Define detailed read schema for Reservation detail info
+class ReservationDetailRead(BaseModel):
+    id: UUID
+    spot_number: str
+    lot_name: str
+    event_name: Optional[str]
+    zone_name: str
+    start_time: datetime
+    end_time: datetime
+    status: str
+
+    class Config:
+        orm_mode = True

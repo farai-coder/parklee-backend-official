@@ -706,24 +706,14 @@ def get_occupied_spots_count(db: Session = Depends(get_db)):
 @router.get("/spots/unoccupied_count", response_model=int)
 def get_unoccupied_spots_count(db: Session = Depends(get_db)):
     """
-    Calculates the total number of unoccupied parking spots.
-
-    This endpoint counts the number of spots that are not currently part of
-    an active parking session.
+    Calculates the total number of unoccupied parking spots based on status.
 
     Returns:
-        An integer representing the total count of unoccupied spots.
+        An integer representing the total count of spots with status 'empty'.
     """
-    # Get the total number of spots.
-    total_spots = db.query(ParkingSpot).count()
-    
-    # Get the number of occupied spots.
-    occupied_spots = db.query(ParkingSession).filter(ParkingSession.check_out_time.is_(None)).count()
-    
-    # Calculate the number of unoccupied spots.
-    unoccupied_count = total_spots - occupied_spots
-    
+    unoccupied_count = db.query(ParkingSpot).filter(ParkingSpot.status == 'empty').count()
     return unoccupied_count
+
 
 @router.get("/hourly_occupancy_trend_by_zone_type", response_model=Dict[str, Dict[str, float]])
 def get_hourly_occupancy_trend_by_zone_type(db: Session = Depends(get_db), hours_back: int = 24) -> Dict[str, Dict[str, float]]:

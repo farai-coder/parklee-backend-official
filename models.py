@@ -39,6 +39,8 @@ class ParkingZone(Base):
     zone_type = Column(Enum("staff", "student", "visitor", "general", name="zone_types"), default="general", nullable=False)
 
     parking_spots = relationship("ParkingSpot", back_populates="parking_zone")
+    latitude = Column(Float, nullable=True)
+    logitude = Column(Float, nullable=True)
 
 
 class ParkingSpot(Base):

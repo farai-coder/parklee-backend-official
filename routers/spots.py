@@ -1,12 +1,13 @@
 import datetime
+from typing import List
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, not_
+from sqlalchemy import and_, case, func, not_
 import csv
 from uuid import UUID
 
 from schemas.auth_schema import SuccessMessage
-from schemas.parkingzone_schema import ParkingZoneCreate, ParkingZoneRead, ParkingSpotCreate, ParkingSpotRead, ParkingSpotUpdate
+from schemas.parkingzone_schema import ParkingZoneCreate, ParkingZoneOccupancyRead, ParkingZoneRead, ParkingSpotCreate, ParkingSpotRead, ParkingSpotUpdate
 from database import SessionLocal
 from models import ParkingSession, ParkingSpot, Reservation, ParkingZone, User
 from database import get_db  # Assuming you have a get_db function to provide DB session    
@@ -36,14 +37,24 @@ def update_parking_zone(zone_id: UUID, zone_update: ParkingZoneCreate, db: Sessi
     db.refresh(db_zone)
     return db_zone
 
-@router.delete("/zones/{zone_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_parking_zone(zone_id: UUID, db: Session = Depends(get_db)):
-    db_zone = db.query(ParkingZone).filter(ParkingZone.id == zone_id).first()
-    if not db_zone:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Parking zone not found")
-    db.delete(db_zone)
+
+@router.delete("/zones/{zone_id}")
+def delete_parking_zone(zone_id: str, db: Session = Depends(get_db)):
+    try:
+        zone_uuid = UUID(zone_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid UUID format for zone_id")
+
+    zone = db.query(ParkingZone).filter(ParkingZone.id == zone_uuid).first()
+    if not zone:
+        raise HTTPException(status_code=404, detail="Zone not found")
+
+    db.query(ParkingSpot).filter(ParkingSpot.parking_zone_id == zone_uuid).delete(synchronize_session=False)
+    db.delete(zone)
     db.commit()
-    return {"message": "Parking zone deleted successfully"}
+    return {"message": "Zone and related spots deleted successfully"}
+
+
 
 @router.get("/zones/{zone_id}/spots", response_model=list[ParkingSpotRead])
 def get_spots_by_zone_id(zone_id: UUID, db: Session = Depends(get_db)):
@@ -133,11 +144,63 @@ def delete_parking_spot(spot_id: UUID, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "Parking spot deleted successfully"}
 
-# New endpoint to get all parking zones
 @router.get("/zones/", response_model=list[ParkingZoneRead])
-def get_all_parking_zones(db: Session = Depends(get_db)):
-    zones = db.query(ParkingZone).all()
+def get_all_parking_zones(
+    db: Session = Depends(get_db)
+):
+    query = db.query(ParkingZone)
+
+    zones = query.order_by(ParkingZone.name).all()
     return zones
+
+
+from sqlalchemy import func, case
+
+@router.get("/zones_with_occupancy", response_model=List[ParkingZoneOccupancyRead])
+def get_zones_with_occupancy(db: Session = Depends(get_db)):
+    """
+    Returns all parking zones with occupancy rate, reserved spots count,
+    and occupied spots count, including latitude and longitude.
+    """
+
+    results = (
+        db.query(
+            ParkingZone.id,
+            ParkingZone.name,
+            ParkingZone.latitude,
+            ParkingZone.logitude,
+            func.count(ParkingSpot.id).label("total_spots"),
+            func.sum(case((ParkingSpot.status == "reserved", 1), else_=0)).label("reserved_spots"),
+            func.sum(case((ParkingSpot.status == "occupied", 1), else_=0)).label("occupied_spots"),
+        )
+        .join(ParkingSpot, ParkingSpot.parking_zone_id == ParkingZone.id)
+        .group_by(
+            ParkingZone.id,
+            ParkingZone.name,
+            ParkingZone.latitude,
+            ParkingZone.logitude,
+        )
+        .all()
+    )
+
+    zones_with_occupancy = []
+    for zone in results:
+        occupancy_rate = (zone.occupied_spots / zone.total_spots) if zone.total_spots > 0 else 0
+        zones_with_occupancy.append(
+            ParkingZoneOccupancyRead(
+                id=zone.id,
+                name=zone.name,
+                total_spots=zone.total_spots,
+                reserved_spots=zone.reserved_spots,
+                occupied_spots=zone.occupied_spots,
+                occupancy_rate=occupancy_rate,
+                latitude=zone.latitude,
+                longitude=zone.logitude,
+            )
+        )
+
+    return zones_with_occupancy
+
 
 
 @router.get("/available-spots", response_model=list[ParkingSpotRead])
@@ -187,3 +250,14 @@ def get_all_spots_with_detail(db: Session = Depends(get_db)):
     """
     all_spots = db.query(ParkingSpot).all()
     return all_spots
+
+@router.get("/empty-spots", response_model=list[ParkingSpotRead])
+def get_all_empty_spots(db: Session = Depends(get_db)):
+    """
+    Retrieves all parking spots that are currently empty.
+
+    Returns:
+        A list of ParkingSpotRead objects representing empty spots.
+    """
+    empty_spots = db.query(ParkingSpot).filter(ParkingSpot.status == "empty").all()
+    return empty_spots

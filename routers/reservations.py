@@ -1,33 +1,35 @@
 import datetime
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import List
+from fastapi import APIRouter, Depends, HTTPException, Path, status
 import pytz
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from database import SessionLocal
 from models import ParkingSession, ParkingSpot, Reservation, User, Events, ParkingZone
-from schemas.reservationsSchema import ReservationCreate, ReservationRead, ReservationCancel # Import new schema
+from schemas.reservationsSchema import ReservationCreate, ReservationDetailRead, ReservationRead, ReservationCancel # Import new schema
 from uuid import UUID
 from database import get_db  # Assuming you have a get_db function to provide DB 
 from datetime import datetime, timedelta, timezone # Import timezone
+from sqlalchemy.orm import joinedload
 
 router = APIRouter(prefix="/reservations", tags=["reservations"])
 
 @router.post("/reserve-spot", response_model=ReservationRead, status_code=status.HTTP_201_CREATED)
 def create_reservation(res: ReservationCreate, db: Session = Depends(get_db)):
 
-    existing_reservation = (
-        db.query(Reservation)
-        .filter(
-            Reservation.user_id == res.user_id,
-            Reservation.status.in_(["active", "pending"])
-        )
-        .first()
-    )
-    if existing_reservation:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User already has an active or pending reservation."
-        )
+    # existing_reservation = (
+    #     db.query(Reservation)
+    #     .filter(
+    #         Reservation.user_id == res.user_id,
+    #         Reservation.status.in_(["active", "pending"])
+    #     )
+    #     .first()
+    # )
+    # if existing_reservation:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_400_BAD_REQUEST,
+    #         detail="User already has an active or pending reservation."
+    #     )
 
     user = db.query(User).get(res.user_id)
     spot = db.query(ParkingSpot).get(res.spot_id)
@@ -64,8 +66,8 @@ def create_reservation(res: ReservationCreate, db: Session = Depends(get_db)):
         print(f"Requested reservation start time (UTC): {res_start_time_aware}")
         print(f"Requested reservation end time (UTC): {res.end_time}")
 
-        if event.allowed_parking_lots and spot.lot_name not in event.allowed_parking_lots:
-            raise HTTPException(status_code=403, detail="This parking lot is not available for the selected event")
+        # if event.allowed_parking_lots and spot.lot_name not in event.allowed_parking_lots:
+        #     raise HTTPException(status_code=403, detail="This parking lot is not available for the selected event")
 
         # *** REMOVED 30-minute window restriction HERE ***
 
@@ -181,3 +183,33 @@ def get_reservations_with_details(db: Session = Depends(get_db)):
     # This example returns basic reservation details. You'd typically use join loading
     # to include user, spot, and event details.
     return db.query(Reservation).all()
+
+@router.get("/reservations/details/{user_id}", response_model=List[ReservationDetailRead])
+def get_reservations_with_details(user_id: UUID = Path(..., description="User ID to filter reservations"),
+                                  db: Session = Depends(get_db)):
+
+    reservations = (
+        db.query(Reservation)
+        .filter(Reservation.user_id == user_id)
+        .options(
+            joinedload(Reservation.parking_spot).joinedload(ParkingSpot.parking_zone),
+            joinedload(Reservation.event)
+        )
+        .all()
+    )
+
+    detailed_reservations = [
+        ReservationDetailRead(
+            id=res.id,
+            spot_number=res.parking_spot.spot_number,
+            lot_name=res.parking_spot.lot_name,
+            event_name=res.event.name if res.event else None,
+            zone_name=res.parking_spot.parking_zone.name,
+            start_time=res.start_time,
+            end_time=res.end_time,
+            status=res.status,
+        )
+        for res in reservations
+    ]
+
+    return detailed_reservations
