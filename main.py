@@ -1,6 +1,6 @@
 from fastapi import FastAPI
-from database import Base, engine
-from routers import users, spots, reservations, events, analytics, auth
+from database import Base, SessionLocal, engine
+from routers import users, spots, reservations, events, analytics, auth, sessions
 
 Base.metadata.create_all(bind=engine)
 
@@ -12,6 +12,7 @@ app.include_router(reservations.router)
 app.include_router(analytics.router)
 app.include_router(events.router)
 app.include_router(auth.auth_router)
+app.include_router(sessions.router)
 
 # add cors midddleware
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,6 +24,15 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
+# Create admin user on startup
+@app.on_event("startup")
+def on_startup():
+    db = SessionLocal()
+    try:
+        users.create_default_admin_if_not_exists(db)
+    finally:
+        db.close()
+        
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000) 

@@ -58,7 +58,12 @@ def users_count(db: Session = Depends(get_db)):
 # Existing: Total reservations count
 @router.get("/reservations_count", response_model=int)
 def reservations_count(db: Session = Depends(get_db)):
-    return db.query(Reservation).count()
+    count = (
+        db.query(Reservation)
+        .filter(or_(Reservation.status == "pending", Reservation.status == "active"))
+        .count()
+    )
+    return count
 
 @router.get("/active_reservations_count", response_model=int)
 def get_active_reservations_count(db: Session = Depends(get_db)):
@@ -399,63 +404,54 @@ def get_hourly_occupancy_trend_by_zone(db: Session = Depends(get_db), hours_back
 @router.get("/users/spot_distribution_by_role", response_model=Dict[str, int])
 def get_spot_distribution_by_role(db: Session = Depends(get_db)):
 
-    # Define all possible user roles to ensure they are always
-    # included in the final output, even if the count is 0.
-    # The list has been updated to reflect your specific roles.
-    all_roles = ["student", "staff", "visitor", "vip"]
-    
-    # Initialize the distribution dictionary with all roles set to 0.
+    all_roles = ["student", "staff", "visitor", "vip"]  # note: ensure these roles exist in your Enum/model
     distribution = {role: 0 for role in all_roles}
 
-    # Query the database to get the count of active sessions grouped by user role.
-    # We no longer need to join with ParkingSpot as we are not counting by spot_type.
     result = db.query(
         User.role,
         func.count(ParkingSession.id)
     ).join(
         ParkingSession, ParkingSession.user_id == User.id
+    ).join(
+        ParkingSpot, ParkingSpot.id == ParkingSession.spot_id
     ).filter(
-        ParkingSession.check_out_time.is_(None)
+        ParkingSession.check_out_time.is_(None),
+        ParkingSpot.status == "occupied"
     ).group_by(
         User.role
     ).all()
 
-    # Populate the distribution dictionary with the actual counts from the database query.
     for role, count in result:
         if role in distribution:
             distribution[role] = count
-            
+
     return distribution
 
 @router.get("/reservations/by_day_of_week", response_model=Dict[str, int])
 def get_reservations_by_day_of_week(db: Session = Depends(get_db)):
-   
-    # Map the database's numeric day of week (0-6) to a human-readable string.
+
+    # Map Python's day numbers to names (assuming Sunday=0, Monday=1, ...)
     day_map = {
         0: "Sunday", 1: "Monday", 2: "Tuesday", 3: "Wednesday",
         4: "Thursday", 5: "Friday", 6: "Saturday"
     }
 
-    # Initialize the distribution dictionary with all days set to 0.
     reservations_by_day = {day_map[i]: 0 for i in range(7)}
 
-    # Query the database to get the count of parking sessions grouped by day of the week.
-    # The strftime('%w', ...) function extracts the day of the week as a number (0-6).
+    # Use SQLite's strftime('%w', ...) to extract the day of week from Reservation.start_time
     result = db.query(
-        func.strftime('%w', ParkingSession.check_in_time),
-        func.count(ParkingSession.id)
+        func.strftime('%w', Reservation.start_time),
+        func.count(Reservation.id)
     ).group_by(
-        func.strftime('%w', ParkingSession.check_in_time)
+        func.strftime('%w', Reservation.start_time)
     ).all()
 
-    # Populate the dictionary with the counts from the database.
     for day_num_str, count in result:
         day_num = int(day_num_str)
         if day_num in day_map:
             reservations_by_day[day_map[day_num]] = count
 
     return reservations_by_day
-
 
 @router.get("/events/distribution_trend_by_month", response_model=Dict[str, int])
 def get_event_distribution_by_month(db: Session = Depends(get_db)):
@@ -519,15 +515,14 @@ def get_events_with_details(db: Session = Depends(get_db)):
 def get_occupied_spots_count(db: Session = Depends(get_db)):
     """
     Returns the total number of parking spots currently occupied.
-    An occupied spot is defined as a ParkingSession with a check_out_time of None.
+    An occupied spot is defined as a ParkingSpot with status 'occupied'.
     """
     count = (
-        db.query(ParkingSession)
-        .filter(ParkingSession.check_out_time.is_(None))
+        db.query(ParkingSpot)
+        .filter(ParkingSpot.status == "occupied")
         .count()
     )
     return count
-
 
 @router.get("/api/events")
 def get_events(db: Session = Depends(get_db)):
@@ -543,7 +538,7 @@ def get_event_distribution(db: Session = Depends(get_db)):
     Counts the number of events for each event type, returning 0 for types with no events.
     """
     # A list of all possible event types
-    all_event_types = ["academic", "sports", "cultural", "official"]
+    all_event_types = ["academia", "sports", "cultural", "official"]
 
     # Initialize a dictionary with a count of 0 for each type
     result = {event_type: 0 for event_type in all_event_types}
@@ -575,7 +570,7 @@ def get_monthly_event_trend(db: Session = Depends(get_db)):
         month_date = today - timedelta(days=(5-i)*30) # Approx. month calculation
         month_label = month_date.strftime("%b")
         monthly_data[month_label] = {
-            "academic": 0, "sports": 0, "cultural": 0, "official": 0
+            "academia": 0, "sports": 0, "cultural": 0, "official": 0
         }
 
     for event in events_in_range:
@@ -584,14 +579,14 @@ def get_monthly_event_trend(db: Session = Depends(get_db)):
             monthly_data[month_label][event.event_type] += 1
             
     # Format for the frontend line chart
-    academic_data = [monthly_data[month]["academic"] for month in monthly_data]
+    academic_data = [monthly_data[month]["academia"] for month in monthly_data]
     sports_data = [monthly_data[month]["sports"] for month in monthly_data]
     cultural_data = [monthly_data[month]["cultural"] for month in monthly_data]
     official_data = [monthly_data[month]["official"] for month in monthly_data]
 
     return {
         "months": list(monthly_data.keys()),
-        "academic": academic_data,
+        "academia": academic_data,
         "sports": sports_data,
         "cultural": cultural_data,
         "official": official_data,
@@ -613,7 +608,7 @@ def get_parking_demand(db: Session = Depends(get_db)):
 
     # Process the results to group by event type
     reservations_by_type = {
-        'academic': [],
+        'academia': [],
         'sports': [],
         'cultural': [],
         'official': []
@@ -633,7 +628,7 @@ def get_parking_demand(db: Session = Depends(get_db)):
             avg_result[event_type] = 0.0
             max_result[event_type] = 0
 
-    event_types = ['academic', 'sports', 'cultural', 'official']
+    event_types = ['academia', 'sports', 'cultural', 'official']
     
     # Map results to the required frontend format
     formatted_avg = [avg_result.get(type, 0.0) for type in event_types]
@@ -689,19 +684,6 @@ def get_total_spots_by_zone(db: Session = Depends(get_db)):
             spot_count_by_zone[zone_name] = count
 
     return spot_count_by_zone
-
-@router.get("/spots/occupied_count", response_model=int)
-def get_occupied_spots_count(db: Session = Depends(get_db)):
-    """
-    Calculates the total number of currently occupied parking spots.
-
-    This endpoint queries the number of parking sessions that have not yet ended.
-
-    Returns:
-        An integer representing the total count of active parking sessions.
-    """
-    occupied_count = db.query(ParkingSession).filter(ParkingSession.check_out_time.is_(None)).count()
-    return occupied_count
 
 @router.get("/spots/unoccupied_count", response_model=int)
 def get_unoccupied_spots_count(db: Session = Depends(get_db)):
@@ -853,37 +835,68 @@ def format_day(day_date) -> str:
     day_num = day_date.day
     return day_date.strftime(f"%A, {day_num} %B")
 
+# Example utility functions (replace these with your actual implementations)
+def get_week_dates(reference_date: datetime) -> Dict[str, datetime]:
+    """
+    Returns a dict of the current week's dates keyed by day names.
+    For example:
+    {
+        "Monday": datetime(...),
+        "Tuesday": datetime(...),
+        ...
+    }
+    """
+    # Dummy implementation (replace with your actual logic)
+    start_of_week = reference_date - timedelta(days=reference_date.weekday())  # Monday
+    return { (start_of_week + timedelta(days=i)).strftime("%A"): start_of_week + timedelta(days=i) for i in range(7) }
+ALL_RESERVATION_STATUSES = ["pending", "active", "completed", "cancelled"]
+
+def get_week_dates(reference_date: datetime) -> Dict[str, date]:
+    start_of_week = reference_date.date() - timedelta(days=reference_date.weekday())
+    return { (start_of_week + timedelta(days=i)).strftime("%A"): (start_of_week + timedelta(days=i)) for i in range(7)}
+
+
+ALL_RESERVATION_STATUSES = ["pending", "active", "completed", "cancelled"]
+
+def get_week_dates(reference_date: datetime) -> Dict[str, date]:
+    start_of_week = reference_date.date() - timedelta(days=reference_date.weekday())
+    return { (start_of_week + timedelta(days=i)).strftime("%A"): (start_of_week + timedelta(days=i)) for i in range(7)}
 
 @router.get("/reservation_status_daily_count", response_model=Dict[str, Dict[str, int]])
 def reservation_status_daily_count(db: Session = Depends(get_db)):
-    today = datetime.utcnow().date()
+    # Get dates for the current week (Monday to Sunday)
     week_dates = get_week_dates(datetime.utcnow())
+    week_date_list = [d for d in week_dates.values()]
+    formatted_week_dates = [d.strftime("%Y-%m-%d") for d in week_date_list]
 
-    # Initialize zero counts for all statuses and all days of the current week
+    # Initialize dictionary with zero counts
     status_day_counts = {
-        status: {format_day(day_date): 0 for day_date in week_dates.values()}
+        status: {day: 0 for day in formatted_week_dates}
         for status in ALL_RESERVATION_STATUSES
     }
 
-    # Query reservation counts grouped by status and start date (date only)
+    # Use SQLite's strftime to extract the date portion of start_time
+    day_column = func.strftime('%Y-%m-%d', Reservation.start_time)
+
+    start_date = week_date_list[0]
+    end_date = week_date_list[-1] + timedelta(days=1)  # exclusive end
+
     results = (
         db.query(
             Reservation.status,
-            cast(Reservation.start_time, Date).label("day_date"),
-            func.count(Reservation.id).label("reservation_count")
+            day_column.label("day_date"),
+            func.count(Reservation.id)
         )
-        .filter(
-            cast(Reservation.start_time, Date).in_(list(week_dates.values()))
-        )
+        .filter(Reservation.start_time >= start_date, Reservation.start_time < end_date)
         .group_by(Reservation.status, "day_date")
+        .order_by("day_date")
         .all()
     )
 
-    # Overwrite zeros with actual counts from query results
+    # Update counts from query results
     for status, day_date, count in results:
-        formatted_day = format_day(day_date)
-        if status in status_day_counts and formatted_day in status_day_counts[status]:
-            status_day_counts[status][formatted_day] = count
+        if status in status_day_counts and day_date in status_day_counts[status]:
+            status_day_counts[status][day_date] = count
 
     return status_day_counts
 

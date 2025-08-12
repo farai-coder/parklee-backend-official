@@ -1,5 +1,5 @@
 import datetime
-from typing import List
+from typing import Dict, List
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 import pytz
 from sqlalchemy.orm import Session
@@ -105,12 +105,12 @@ def create_reservation(res: ReservationCreate, db: Session = Depends(get_db)):
     if current_session:
         raise HTTPException(status_code=400, detail="Spot is currently occupied by an active parking session.")
 
-    obj = Reservation(**res.model_dump(), status="pending")
+    obj = Reservation(**res.model_dump(), status="active")
     db.add(obj)
     db.commit()
     db.refresh(obj)
 
-    spot.status = "occupied"
+    spot.status = "reserved"
     db.add(spot)
     db.commit()
     db.refresh(spot)
@@ -177,12 +177,49 @@ def get_user_reservations(user_id: UUID, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User not found")
     return db.query(Reservation).filter(Reservation.user_id == user_id).all()
 
-# New endpoint to get reservations with details
-@router.get("/details", response_model=list[ReservationRead]) # Consider a more detailed schema if needed
-def get_reservations_with_details(db: Session = Depends(get_db)):
-    # This example returns basic reservation details. You'd typically use join loading
-    # to include user, spot, and event details.
-    return db.query(Reservation).all()
+# # New endpoint to get reservations with details
+# @router.get("/details", response_model=list[ReservationRead]) # Consider a more detailed schema if needed
+# def get_reservations_with_details(db: Session = Depends(get_db)):
+#     # This example returns basic reservation details. You'd typically use join loading
+#     # to include user, spot, and event details.
+#     return db.query(Reservation).all()
+
+@router.get("/details", response_model=List[Dict])
+def get_reservations_with_details(db: Session = Depends(get_db)) -> List[Dict]:
+    reservations = db.query(
+        Reservation,
+        User.name,
+        User.surname,
+        User.role,
+        User.license_plate,
+        ParkingSpot.lot_name.label("spot_name"),
+        ParkingZone.name.label("zone_name")
+    ).join(
+        User, Reservation.user_id == User.id
+    ).join(
+        ParkingSpot, Reservation.spot_id == ParkingSpot.id
+    ).join(
+        ParkingZone, ParkingSpot.parking_zone_id == ParkingZone.id
+    ).all()
+
+    results = []
+    for reservation, user_name, user_surname, user_role, license_plate, lot_name, zone_name in reservations:
+        results.append({
+            "id": str(reservation.id),
+            "user_id": str(reservation.user_id),
+            "spot_id": str(reservation.spot_id),
+            "event_id": str(reservation.event_id) if reservation.event_id else None,
+            "zone_name": zone_name,
+            "user_full_name": f"{user_name} {user_surname}",
+            "user_role": user_role,
+            "license_plate": license_plate,
+            "spot_name": lot_name,
+            "start_time": reservation.start_time,
+            "end_time": reservation.end_time,
+            "status": reservation.status
+        })
+
+    return results
 
 @router.get("/reservations/details/{user_id}", response_model=List[ReservationDetailRead])
 def get_reservations_with_details(user_id: UUID = Path(..., description="User ID to filter reservations"),

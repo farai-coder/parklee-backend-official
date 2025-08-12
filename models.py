@@ -17,7 +17,7 @@ class User(Base):
     gender = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     phone_number = Column(String, unique=True, index=True, nullable=False)
-    license_plate = Column(String, unique=True, index=True, nullable=False)
+    license_plate = Column(String, unique=True, index=True, nullable=True)
     role = Column(Enum("student", "staff", "admin", "visitor", name="user_roles"), default="student", nullable=False)
     password = Column(String, nullable=True)
     status = Column(Enum("active", "inactive", "pending", "disabled", name="user_status"), default="active", nullable=False)

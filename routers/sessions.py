@@ -3,10 +3,10 @@ from fastapi import APIRouter, Depends, HTTPException, status, APIRouter
 from sqlalchemy.orm import Session
 from database import SessionLocal
 from models import ParkingSession, User, Reservation, ParkingSpot, ParkingZone, Report # Import Report
-from schemas.sessionSchema import SessionCreate
+from schemas.sessionSchema import SessionCreate, SuccessMessage
 from schemas.reportSchema import ReportCreate # Assuming you have a ReportCreate schema
 from uuid import UUID
-import datetime
+from datetime import datetime
 from crud import get_available_spots # Assuming crud.py has this or similar logic
 from database import get_db  # Assuming you have a get_db function to provide DB session 
 
@@ -69,13 +69,21 @@ def check_user_and_zone_rules(license_plate: str, spot_id: UUID, db: Session):
              raise HTTPException(status_code=403, detail="This is a reserved spot and you do not have an active reservation.")
 
     return user, spot, parking_zone, active_reservation
-
-
-@router.post("/check-in", response_model=SessionCreate)
+@router.post("/check-in", response_model=SuccessMessage, status_code=status.HTTP_201_CREATED)
 def check_in(s: SessionCreate, db: Session = Depends(get_db)):
-    user, spot, zone, active_reservation = check_user_and_zone_rules(s.license_plate, s.spot_id, db)
 
-    # Check for active session for this user or spot
+    # Lookup the user by ID provided in request
+    user = db.query(User).filter(User.id == s.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Use license plate from user record
+    license_plate = user.license_plate
+
+    # Pass license_plate and spot_id to your existing check_user_and_zone_rules
+    user, spot, zone, active_reservation = check_user_and_zone_rules(license_plate, s.spot_id, db)
+
+    # Check for existing active sessions for this user and spot as before
     existing_session_for_user = db.query(ParkingSession).filter(
         ParkingSession.user_id == user.id,
         ParkingSession.check_out_time.is_(None)
@@ -90,10 +98,6 @@ def check_in(s: SessionCreate, db: Session = Depends(get_db)):
     if existing_session_for_spot:
         raise HTTPException(status_code=400, detail="Spot is already occupied by another session.")
 
-    # Ensure spot is available (not occupied by reservation or other means)
-    # This logic might be slightly redundant with check_user_and_zone_rules and available-spots,
-    # but good to re-confirm before creating session.
-    # It's better to update spot status to "occupied" immediately on check-in.
     if spot.status != "empty":
         raise HTTPException(status_code=400, detail=f"Spot is not available for check-in. Current status: {spot.status}")
 
@@ -113,7 +117,7 @@ def check_in(s: SessionCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(spot)
 
-    return db_session
+    return {"message": "Checked in successfully."}
 
 
 @router.post("/check-out", status_code=status.HTTP_200_OK)

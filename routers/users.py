@@ -14,6 +14,7 @@ import os
 from dotenv import load_dotenv
 from database import get_db
 from schemas.userSchema import UserIdResponse
+from passlib.context import CryptContext
 
 user_router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -89,3 +90,35 @@ def get_all_students(db: Session = Depends(get_db)):
     """Get all student users"""
     students = get_users_by_role("student", db)
     return students
+
+# Setup bcrypt password hashing context; adjust as needed
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+
+def create_default_admin_if_not_exists(db: Session):
+    # Check if admin user exists
+    admin_user = db.query(User).filter(User.role == "admin").first()
+    if admin_user:
+        print("Admin user already exists:", admin_user.email)
+        return admin_user
+
+    # No admin found, create default admin
+    default_admin = User(
+        id=uuid.uuid4(),
+        name="admin",
+        surname="admin",
+        gender="other",  # or your preferred default value
+        email="admin@parklee.co.zw",
+        phone_number="0000000000",  # replace with valid or dummy phone
+        license_plate=None,
+        role="admin",
+        password=get_password_hash("12345"),  # use a secure default and enforce change
+        status="active"
+    )
+
+    db.add(default_admin)
+    db.commit()
+    db.refresh(default_admin)
+    return default_admin
