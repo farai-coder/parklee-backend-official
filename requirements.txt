@@ -9,4 +9,4 @@ uuid
 boto3
 psycopg2-binary
 python-dotenv
-openai
+passlib[bcrypt]==1.7.4        # or latest compatible version
