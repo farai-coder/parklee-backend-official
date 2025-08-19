@@ -261,3 +261,20 @@ def get_all_empty_spots(db: Session = Depends(get_db)):
     """
     empty_spots = db.query(ParkingSpot).filter(ParkingSpot.status == "empty").all()
     return empty_spots
+
+
+@router.get("/spot-number-to-id", response_model=dict[int, UUID])
+def get_spot_number_to_id(db: Session = Depends(get_db)):
+    spots = db.query(ParkingSpot).all()
+    # Create dictionary {spot_number: id}
+    # Assuming spot_number can be cast to int consistently; if spot_number is string, adapt accordingly
+    spot_map = {}
+    for spot in spots:
+        # Try converting spot_number to int if possible
+        try:
+            spot_number_key = int(spot.spot_number)
+        except ValueError:
+            # If not int, use string spot_number as key instead of int
+            spot_number_key = spot.spot_number
+        spot_map[spot_number_key] = spot.id
+    return spot_map
