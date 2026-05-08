@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from database import Base, SessionLocal, engine
-from routers import users, spots, reservations, events, analytics, auth, sessions
+from routers import users, spots, reservations, events, analytics, auth, sessions, sensors
 
 Base.metadata.create_all(bind=engine)
 
@@ -13,6 +13,7 @@ app.include_router(analytics.router)
 app.include_router(events.router)
 app.include_router(auth.auth_router)
 app.include_router(sessions.router)
+app.include_router(sensors.router)
 
 # add cors midddleware
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,6 +31,7 @@ def on_startup():
     db = SessionLocal()
     try:
         users.create_default_admin_if_not_exists(db)
+        spots.create_default_spot_if_not_exists(db)
     finally:
         db.close()
         

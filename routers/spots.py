@@ -14,6 +14,37 @@ from database import get_db  # Assuming you have a get_db function to provide DB
 
 router = APIRouter(prefix="/spots", tags=["spots"])
 
+
+# Constants for the seeded sensor-test spot.
+SEED_ZONE_NAME = "Parklee Test Lot"
+SEED_SPOT_NUMBER = "A12"
+
+
+def create_default_spot_if_not_exists(db: Session):
+    """Ensure a single test spot (matching the Arduino sketch) exists."""
+    existing = db.query(ParkingSpot).filter(ParkingSpot.spot_number == SEED_SPOT_NUMBER).first()
+    if existing:
+        return existing
+
+    zone = db.query(ParkingZone).filter(ParkingZone.name == SEED_ZONE_NAME).first()
+    if not zone:
+        zone = ParkingZone(name=SEED_ZONE_NAME, zone_type="general")
+        db.add(zone)
+        db.flush()
+
+    spot = ParkingSpot(
+        spot_number=SEED_SPOT_NUMBER,
+        lot_name=zone.name,
+        is_vip=False,
+        spot_type="regular",
+        status="empty",
+        parking_zone_id=zone.id,
+    )
+    db.add(spot)
+    db.commit()
+    db.refresh(spot)
+    return spot
+
 # --- Parking Zone Endpoints (Admin Only) ---
 @router.post("/zones/", response_model=SuccessMessage, status_code=status.HTTP_201_CREATED)
 def create_parking_zone(zone_in: ParkingZoneCreate, db: Session = Depends(get_db)):
